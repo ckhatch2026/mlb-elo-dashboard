@@ -471,10 +471,9 @@ document.getElementById("apiKey").addEventListener("change", (e) => {
   updateKeyToggleLabel();
 
   const now = new Date();
-  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  const yyyy = tomorrow.getFullYear();
-  const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
-  const dd = String(tomorrow.getDate()).padStart(2, "0");
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
   document.getElementById("gameDate").value = `${yyyy}-${mm}-${dd}`;
 
   updateRatingsBadge();
