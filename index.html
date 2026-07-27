@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MLB Elo Dashboard</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #2a2e38;
+    --text: #e8e9ec;
+    --muted: #9aa0ab;
+    --accent: #4f8cff;
+    --pos: #35c470;
+    --neg: #ff5d6c;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --border: #dfe2e8;
+      --text: #1a1d23;
+      --muted: #5b6270;
+      --accent: #2e6ee0;
+      --pos: #1a9e56;
+      --neg: #d6394a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    padding-top: max(24px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  @media (max-width: 480px) {
+    body { padding: 14px; }
+    input[type=password], input[type=date] { width: 100%; }
+    .row > div { width: 100%; }
+    table { font-size: 0.82rem; }
+    th, td { padding: 7px 6px; }
+  }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  label { font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 4px; }
+  input[type=password], input[type=date], input[type=text] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 0.9rem;
+  }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; }
+  .edge-pos { color: var(--pos); font-weight: 600; }
+  .edge-neg { color: var(--neg); font-weight: 600; }
+  .status { font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
+  .badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--border);
+    color: var(--muted);
+    margin-left: 6px;
+  }
+  #ratingsTable { display: none; margin-top: 10px; }
+  .toggle-link { color: var(--accent); font-size: 0.8rem; cursor: pointer; text-decoration: underline; }
+  .error { color: var(--neg); font-size: 0.85rem; margin-top: 8px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .key-widget { position: relative; flex-shrink: 0; }
+  .key-toggle-btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .key-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    width: 240px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    z-index: 10;
+  }
+  .key-panel.open { display: block; }
+  .key-panel input { width: 100%; }
+  @media (max-width: 480px) {
+    .key-panel { width: 200px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>MLB Elo Dashboard</h1>
+    <div class="sub">Private, local, live. Runs entirely in your browser — nothing is uploaded anywhere.</div>
+  </div>
+  <div class="key-widget">
+    <button class="key-toggle-btn" id="apiKeyToggle">🔑 <span id="apiKeyToggleLabel">Set key</span></button>
+    <div class="key-panel" id="apiKeyPanel">
+      <label for="apiKey">Odds API key</label>
+      <input type="password" id="apiKey" placeholder="paste your the-odds-api.com key">
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <div>
+      <label for="gameDate">Game date</label>
+      <input type="date" id="gameDate">
+    </div>
+    <div style="align-self:flex-end;">
+      <button id="refreshBtn">Refresh odds & predictions</button>
+    </div>
+  </div>
+  <div class="status" id="oddsStatus">No data loaded yet.</div>
+  <div class="error" id="oddsError"></div>
+</div>
+
+<div class="panel">
+  <div class="table-scroll">
+  <table id="predTable">
+    <thead>
+      <tr><th>Home</th><th>Away</th><th>Model %</th><th>Market %</th><th>Edge</th></tr>
+    </thead>
+    <tbody id="predBody">
+      <tr><td colspan="5" style="color:var(--muted)">Enter your API key and click Refresh.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <button class="secondary" id="ratingsBtn">Recompute team ratings from full history</button>
+    <span class="badge" id="ratingsBadge">no ratings cached</span>
+  </div>
+  <div class="status">Ratings replay every completed 2025 + 2026 game via the same Elo model as elo.py (home-field +24, K=4, margin-of-victory adjustment). This takes ~15-20 seconds and only needs to be rerun every few days — team ratings move slowly.</div>
+  <div class="error" id="ratingsError"></div>
+  <span class="toggle-link" id="toggleRatings">show current power ratings</span>
+  <div class="table-scroll">
+  <table id="ratingsTable">
+    <thead><tr><th>Team</th><th>Rating</th></tr></thead>
+    <tbody id="ratingsBody"></tbody>
+  </table>
+  </div>
+</div>
+
+<script>
+const TEAM_ABBR = {
+  "Arizona Diamondbacks": "AZ", "Atlanta Braves": "ATL", "Baltimore Orioles": "BAL",
+  "Boston Red Sox": "BOS", "Chicago Cubs": "CHC", "Chicago White Sox": "CWS",
+  "Cincinnati Reds": "CIN", "Cleveland Guardians": "CLE", "Colorado Rockies": "COL",
+  "Detroit Tigers": "DET", "Houston Astros": "HOU", "Kansas City Royals": "KC",
+  "Los Angeles Angels": "LAA", "Los Angeles Dodgers": "LAD", "Miami Marlins": "MIA",
+  "Milwaukee Brewers": "MIL", "Minnesota Twins": "MIN", "New York Mets": "NYM",
+  "New York Yankees": "NYY", "Athletics": "ATH", "Oakland Athletics": "ATH",
+  "Philadelphia Phillies": "PHI", "Pittsburgh Pirates": "PIT", "San Diego Padres": "SD",
+  "San Francisco Giants": "SF", "Seattle Mariners": "SEA", "St. Louis Cardinals": "STL",
+  "Tampa Bay Rays": "TB", "Texas Rangers": "TEX", "Toronto Blue Jays": "TOR",
+  "Washington Nationals": "WSH",
+};
+
+const DEFAULT_RATING = 1500, HOME_ADVANTAGE = 24, K_FACTOR = 4;
+
+function winProbability(ratings, home, away) {
+  const rHome = (ratings[home] ?? DEFAULT_RATING) + HOME_ADVANTAGE;
+  const rAway = ratings[away] ?? DEFAULT_RATING;
+  return 1 / (1 + Math.pow(10, (rAway - rHome) / 400));
+}
+
+function updateRatings(ratings, home, away, homeScore, awayScore) {
+  const pHome = winProbability(ratings, home, away);
+  const actualHome = homeScore > awayScore ? 1 : 0;
+  const margin = Math.abs(homeScore - awayScore);
+  const mov = Math.pow(margin + 1, 0.4);
+  const rHome = ratings[home] ?? DEFAULT_RATING;
+  const rAway = ratings[away] ?? DEFAULT_RATING;
+  const delta = K_FACTOR * mov * (actualHome - pHome);
+  ratings[home] = rHome + delta;
+  ratings[away] = rAway - delta;
+}
+
+function americanOddsToProb(odds) {
+  odds = parseFloat(odds);
+  return odds < 0 ? (-odds) / (-odds + 100) : 100 / (odds + 100);
+}
+
+async function fetchMonthGames(year, month) {
+  const start = `${year}-${String(month).padStart(2,"0")}-01`;
+  const endMonth = month === 12 ? `${year}-12-31` : `${year}-${String(month+1).padStart(2,"0")}-01`;
+  const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=${start}&endDate=${endMonth}&gameType=R`;
+  const resp = await fetch(url);
+  const data = await resp.json();
+  const games = [];
+  for (const day of data.dates ?? []) {
+    for (const g of day.games ?? []) {
+      if (g.status?.codedGameState !== "F") continue;
+      const home = g.teams.home.team.name, away = g.teams.away.team.name;
+      const hs = g.teams.home.score, as = g.teams.away.score;
+      if (hs == null || as == null) continue;
+      if (!(home in TEAM_ABBR) || !(away in TEAM_ABBR)) continue;
+      games.push({ date: g.officialDate, home: TEAM_ABBR[home], away: TEAM_ABBR[away], hs, as });
+    }
+  }
+  return games;
+}
+
+async function computeRatings() {
+  const now = new Date();
+  const years = [2025, 2026];
+  const monthPromises = [];
+  for (const year of years) {
+    const maxMonth = year === now.getUTCFullYear() ? now.getUTCMonth() + 1 : 10;
+    for (let m = 3; m <= Math.min(maxMonth, 10); m++) {
+      monthPromises.push(fetchMonthGames(year, m));
+    }
+  }
+  const monthResults = await Promise.all(monthPromises);
+  const allGames = monthResults.flat().sort((a, b) => a.date.localeCompare(b.date));
+  const ratings = {};
+  for (const g of allGames) {
+    updateRatings(ratings, g.home, g.away, g.hs, g.as);
+  }
+  return { ratings, gameCount: allGames.length };
+}
+
+async function fetchScheduleForDate(dateStr) {
+  const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=${dateStr}&endDate=${dateStr}&gameType=R`;
+  const resp = await fetch(url);
+  const data = await resp.json();
+  const matchups = [];
+  for (const day of data.dates ?? []) {
+    for (const g of day.games ?? []) {
+      const home = g.teams.home.team.name, away = g.teams.away.team.name;
+      if (!(home in TEAM_ABBR) || !(away in TEAM_ABBR)) continue;
+      matchups.push({ home: TEAM_ABBR[home], away: TEAM_ABBR[away], homeFull: home, awayFull: away });
+    }
+  }
+  return matchups;
+}
+
+async function fetchOddsForDate(apiKey, dateStr) {
+  const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${encodeURIComponent(apiKey)}&regions=us&markets=h2h&oddsFormat=american`;
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.message || `Odds API error (${resp.status})`);
+  }
+  const events = await resp.json();
+  const now = new Date();
+  const oddsByMatchup = {};
+  for (const ev of events) {
+    const commence = new Date(ev.commence_time);
+    const localDate = new Date(commence.getTime() - 5 * 3600 * 1000).toISOString().slice(0, 10);
+    if (localDate !== dateStr) continue;
+    if (commence <= now) continue; // skip already-started games (live-priced)
+    const home = ev.home_team, away = ev.away_team;
+    if (!(home in TEAM_ABBR) || !(away in TEAM_ABBR)) continue;
+    let homeOdds = null, awayOdds = null;
+    for (const book of ev.bookmakers ?? []) {
+      const market = (book.markets ?? []).find(m => m.key === "h2h");
+      if (!market) continue;
+      for (const outcome of market.outcomes) {
+        if (outcome.name === home) homeOdds = outcome.price;
+        else if (outcome.name === away) awayOdds = outcome.price;
+      }
+      if (homeOdds != null && awayOdds != null) break;
+    }
+    if (homeOdds == null || awayOdds == null) continue;
+    oddsByMatchup[`${TEAM_ABBR[home]}@${TEAM_ABBR[away]}`] = { homeOdds, awayOdds };
+  }
+  return oddsByMatchup;
+}
+
+function loadCachedRatings() {
+  const raw = localStorage.getItem("eloRatings");
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+function saveCachedRatings(ratings, gameCount) {
+  localStorage.setItem("eloRatings", JSON.stringify({ ratings, gameCount, computedAt: new Date().toISOString() }));
+}
+
+function renderRatingsTable(ratings) {
+  const body = document.getElementById("ratingsBody");
+  body.innerHTML = "";
+  const sorted = Object.entries(ratings).sort((a, b) => b[1] - a[1]);
+  for (const [team, rating] of sorted) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${team}</td><td>${rating.toFixed(1)}</td>`;
+    body.appendChild(tr);
+  }
+}
+
+function updateRatingsBadge() {
+  const cached = loadCachedRatings();
+  const badge = document.getElementById("ratingsBadge");
+  if (!cached) {
+    badge.textContent = "no ratings cached";
+    return;
+  }
+  const when = new Date(cached.computedAt);
+  badge.textContent = `${cached.gameCount} games, updated ${when.toLocaleString()}`;
+  renderRatingsTable(cached.ratings);
+}
+
+async function onRecomputeRatings() {
+  const btn = document.getElementById("ratingsBtn");
+  const errEl = document.getElementById("ratingsError");
+  errEl.textContent = "";
+  btn.disabled = true;
+  btn.textContent = "Computing…";
+  try {
+    const { ratings, gameCount } = await computeRatings();
+    saveCachedRatings(ratings, gameCount);
+    updateRatingsBadge();
+  } catch (e) {
+    errEl.textContent = "Failed to compute ratings: " + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Recompute team ratings from full history";
+  }
+}
+
+async function onRefresh() {
+  const errEl = document.getElementById("oddsError");
+  const statusEl = document.getElementById("oddsStatus");
+  const body = document.getElementById("predBody");
+  errEl.textContent = "";
+
+  const apiKey = document.getElementById("apiKey").value.trim();
+  const dateStr = document.getElementById("gameDate").value;
+  if (!apiKey) { errEl.textContent = "Enter your Odds API key first."; return; }
+  if (!dateStr) { errEl.textContent = "Pick a date first."; return; }
+  localStorage.setItem("oddsApiKey", apiKey);
+  updateKeyToggleLabel();
+
+  let cached = loadCachedRatings();
+  if (!cached) {
+    statusEl.textContent = "No ratings cached yet — computing from full history first…";
+    await onRecomputeRatings();
+    cached = loadCachedRatings();
+    if (!cached) return;
+  }
+
+  const btn = document.getElementById("refreshBtn");
+  btn.disabled = true;
+  btn.textContent = "Refreshing…";
+  try {
+    const [schedule, odds] = await Promise.all([
+      fetchScheduleForDate(dateStr),
+      fetchOddsForDate(apiKey, dateStr),
+    ]);
+
+    body.innerHTML = "";
+    if (schedule.length === 0) {
+      body.innerHTML = `<tr><td colspan="5" style="color:var(--muted)">No games scheduled for ${dateStr}.</td></tr>`;
+    }
+    for (const m of schedule) {
+      const modelP = winProbability(cached.ratings, m.home, m.away);
+      const key = `${m.home}@${m.away}`;
+      const line = odds[key];
+      const tr = document.createElement("tr");
+      let marketCell = `<td style="color:var(--muted)">n/a</td>`;
+      let edgeCell = `<td style="color:var(--muted)">n/a</td>`;
+      if (line) {
+        const marketP = americanOddsToProb(line.homeOdds);
+        const edge = (modelP - marketP) * 100;
+        const cls = edge >= 0 ? "edge-pos" : "edge-neg";
+        marketCell = `<td>${(marketP*100).toFixed(1)}%</td>`;
+        edgeCell = `<td class="${cls}">${edge >= 0 ? "+" : ""}${edge.toFixed(1)} pts</td>`;
+      }
+      tr.innerHTML = `<td>${m.home}</td><td>${m.away}</td><td>${(modelP*100).toFixed(1)}%</td>${marketCell}${edgeCell}`;
+      body.appendChild(tr);
+    }
+    statusEl.textContent = `Updated ${new Date().toLocaleTimeString()} — ratings from ${cached.gameCount} games (as of ${new Date(cached.computedAt).toLocaleDateString()}), odds fetched live just now.`;
+  } catch (e) {
+    errEl.textContent = "Refresh failed: " + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Refresh odds & predictions";
+  }
+}
+
+document.getElementById("toggleRatings").addEventListener("click", (e) => {
+  const table = document.getElementById("ratingsTable");
+  const visible = table.style.display === "table";
+  table.style.display = visible ? "none" : "table";
+  e.target.textContent = visible ? "show current power ratings" : "hide power ratings";
+});
+
+document.getElementById("refreshBtn").addEventListener("click", onRefresh);
+document.getElementById("ratingsBtn").addEventListener("click", onRecomputeRatings);
+
+function updateKeyToggleLabel() {
+  const hasKey = !!localStorage.getItem("oddsApiKey");
+  document.getElementById("apiKeyToggleLabel").textContent = hasKey ? "Key set" : "Set key";
+}
+
+document.getElementById("apiKeyToggle").addEventListener("click", (e) => {
+  e.stopPropagation();
+  document.getElementById("apiKeyPanel").classList.toggle("open");
+});
+document.addEventListener("click", (e) => {
+  const widget = document.querySelector(".key-widget");
+  if (!widget.contains(e.target)) {
+    document.getElementById("apiKeyPanel").classList.remove("open");
+  }
+});
+document.getElementById("apiKey").addEventListener("change", (e) => {
+  localStorage.setItem("oddsApiKey", e.target.value.trim());
+  updateKeyToggleLabel();
+});
+
+// init
+(function init() {
+  const savedKey = localStorage.getItem("oddsApiKey");
+  if (savedKey) document.getElementById("apiKey").value = savedKey;
+  updateKeyToggleLabel();
+
+  const now = new Date();
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const yyyy = tomorrow.getFullYear();
+  const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
+  const dd = String(tomorrow.getDate()).padStart(2, "0");
+  document.getElementById("gameDate").value = `${yyyy}-${mm}-${dd}`;
+
+  updateRatingsBadge();
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+})();
+</script>
+
+</body>
+</html>
