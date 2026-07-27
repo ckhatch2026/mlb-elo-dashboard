@@ -411,8 +411,12 @@ document.getElementById("ratingsBtn").addEventListener("click", onRecomputeRatin
   const savedKey = localStorage.getItem("oddsApiKey");
   if (savedKey) document.getElementById("apiKey").value = savedKey;
 
-  const tomorrow = new Date(Date.now() + 24 * 3600 * 1000);
-  document.getElementById("gameDate").value = tomorrow.toISOString().slice(0, 10);
+  const now = new Date();
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const yyyy = tomorrow.getFullYear();
+  const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
+  const dd = String(tomorrow.getDate()).padStart(2, "0");
+  document.getElementById("gameDate").value = `${yyyy}-${mm}-${dd}`;
 
   updateRatingsBadge();
 
