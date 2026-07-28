@@ -94,6 +94,8 @@
   .edge-neg { color: var(--neg); font-weight: 600; }
   .row-correct { background: color-mix(in srgb, var(--pos) 16%, transparent); }
   .row-incorrect { background: color-mix(in srgb, var(--neg) 16%, transparent); }
+  .mark-correct { color: var(--pos); font-weight: 700; }
+  .mark-incorrect { color: var(--neg); font-weight: 700; }
   .status { font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
   .badge {
     display: inline-block;
@@ -428,6 +430,17 @@ async function onRefresh() {
       const key = `${m.home}@${m.away}`;
       const line = odds[key];
       const tr = document.createElement("tr");
+
+      const decided = m.isFinal && m.homeScore != null && m.awayScore != null && m.homeScore !== m.awayScore;
+      let correct = null;
+      if (decided) {
+        const modelPickedHome = modelP >= 0.5;
+        const homeWon = m.homeScore > m.awayScore;
+        correct = modelPickedHome === homeWon;
+        tr.classList.add(correct ? "row-correct" : "row-incorrect");
+      }
+      const resultMark = decided ? ` <span class="${correct ? "mark-correct" : "mark-incorrect"}">${correct ? "✓" : "✗"}</span>` : "";
+
       let marketCell = `<td style="color:var(--muted)">n/a</td>`;
       let edgeCell = `<td style="color:var(--muted)">n/a</td>`;
       if (line) {
@@ -436,14 +449,11 @@ async function onRefresh() {
         const cls = edge >= 0 ? "edge-pos" : "edge-neg";
         const bookOdds = Math.round(line.homeOdds);
         marketCell = `<td>${bookOdds > 0 ? "+" : ""}${bookOdds}</td>`;
-        edgeCell = `<td class="${cls}">${edge >= 0 ? "+" : ""}${edge.toFixed(1)} pts</td>`;
+        edgeCell = `<td class="${cls}">${edge >= 0 ? "+" : ""}${edge.toFixed(1)} pts${resultMark}</td>`;
+      } else if (decided) {
+        edgeCell = `<td style="color:var(--muted)">n/a${resultMark}</td>`;
       }
       tr.innerHTML = `<td>${m.home}</td><td>${m.away}</td><td>${probToAmericanOdds(modelP)}</td>${marketCell}${edgeCell}`;
-      if (m.isFinal && m.homeScore != null && m.awayScore != null && m.homeScore !== m.awayScore) {
-        const modelPickedHome = modelP >= 0.5;
-        const homeWon = m.homeScore > m.awayScore;
-        tr.classList.add(modelPickedHome === homeWon ? "row-correct" : "row-incorrect");
-      }
       body.appendChild(tr);
     }
     statusEl.textContent = `Updated ${new Date().toLocaleTimeString()} — ratings from ${cached.gameCount} games (as of ${new Date(cached.computedAt).toLocaleDateString()}), odds fetched live just now.`;
