@@ -129,17 +129,8 @@
   <div class="error" id="propError"></div>
 </div>
 
-<div class="panel">
-  <div class="table-scroll">
-  <table id="propTable">
-    <thead>
-      <tr><th>Player</th><th>Team</th><th>Prop</th><th>Line</th><th>Model Avg (L15)</th><th>Lean</th><th>Odds</th></tr>
-    </thead>
-    <tbody id="propBody">
-      <tr><td colspan="7" style="color:var(--muted)">Click "Load player props" to begin.</td></tr>
-    </tbody>
-  </table>
-  </div>
+<div id="propResults">
+  <div class="panel" style="color:var(--muted)">Click "Load player props" to begin.</div>
 </div>
 
 <script>
@@ -222,33 +213,36 @@ async function fetchEventProps(apiKey, eventId, markets) {
   return resp.json();
 }
 
+function betterOdds(a, b) {
+  // "Better" = more favorable payout for the bettor = lower implied probability.
+  return americanOddsToProb(a) <= americanOddsToProb(b) ? a : b;
+}
+
 function extractPropLines(eventOdds) {
+  // Shops across every bookmaker and keeps the best (highest-payout) price
+  // for each side, at whichever point line was seen first for that player+market.
   // Returns [{ player, market, point, overOdds, underOdds }]
-  const lines = [];
-  const seen = new Set();
+  const grouped = {};
   for (const book of eventOdds.bookmakers ?? []) {
     for (const market of book.markets ?? []) {
       for (const outcome of market.outcomes ?? []) {
         const player = outcome.description;
         if (!player) continue;
-        const dedupeKey = `${market.key}|${player}`;
-        if (seen.has(dedupeKey)) continue;
-        // find matching over/under pair within this same market's outcomes
-        const partnerName = outcome.name === "Over" ? "Under" : "Over";
-        const partner = market.outcomes.find(o => o.description === player && o.name === partnerName && o.point === outcome.point);
-        if (!partner) continue;
-        seen.add(dedupeKey);
-        lines.push({
-          player,
-          market: market.key,
-          point: outcome.point,
-          overOdds: outcome.name === "Over" ? outcome.price : partner.price,
-          underOdds: outcome.name === "Under" ? outcome.price : partner.price,
-        });
+        const key = `${market.key}|${player}`;
+        if (!grouped[key]) {
+          grouped[key] = { player, market: market.key, point: outcome.point, overOdds: null, underOdds: null };
+        }
+        const g = grouped[key];
+        if (outcome.point !== g.point) continue; // ignore alt lines that don't match the canonical point
+        if (outcome.name === "Over") {
+          g.overOdds = g.overOdds == null ? outcome.price : betterOdds(g.overOdds, outcome.price);
+        } else if (outcome.name === "Under") {
+          g.underOdds = g.underOdds == null ? outcome.price : betterOdds(g.underOdds, outcome.price);
+        }
       }
     }
   }
-  return lines;
+  return Object.values(grouped).filter(g => g.overOdds != null && g.underOdds != null);
 }
 
 async function fetchRoster(teamId) {
@@ -293,7 +287,7 @@ function americanOddsToProb(odds) {
 async function loadProps() {
   const errEl = document.getElementById("propError");
   const statusEl = document.getElementById("propStatus");
-  const body = document.getElementById("propBody");
+  const results = document.getElementById("propResults");
   errEl.textContent = "";
 
   const apiKey = localStorage.getItem("oddsApiKey");
@@ -310,7 +304,7 @@ async function loadProps() {
   const btn = document.getElementById("loadBtn");
   btn.disabled = true;
   btn.textContent = "Loading…";
-  body.innerHTML = "";
+  results.innerHTML = "";
 
   try {
     statusEl.textContent = "Fetching today's games and matching them to sportsbook events…";
@@ -323,7 +317,7 @@ async function loadProps() {
     const matchedEvents = events.filter(ev => gameSet.has(`${ev.home_team}|${ev.away_team}`));
 
     if (matchedEvents.length === 0) {
-      body.innerHTML = `<tr><td colspan="7" style="color:var(--muted)">No sportsbook events matched for ${dateStr}.</td></tr>`;
+      results.innerHTML = `<div class="panel" style="color:var(--muted)">No sportsbook events matched for ${dateStr}.</div>`;
       statusEl.textContent = "Done.";
       return;
     }
@@ -345,7 +339,7 @@ async function loadProps() {
     });
 
     if (rows.length === 0) {
-      body.innerHTML = `<tr><td colspan="7" style="color:var(--muted)">No prop lines posted yet for ${dateStr}.</td></tr>`;
+      results.innerHTML = `<div class="panel" style="color:var(--muted)">No prop lines posted yet for ${dateStr}.</div>`;
       statusEl.textContent = "Done.";
       return;
     }
@@ -379,8 +373,7 @@ async function loadProps() {
     );
     const gameLogById = Object.fromEntries(gameLogEntries);
 
-    // Render
-    body.innerHTML = "";
+    // Build projections
     const withProjection = matchedRows
       .map(row => {
         const field = MARKET_STAT_FIELD[row.market];
@@ -391,29 +384,59 @@ async function loadProps() {
         const leanOdds = lean === "Over" ? row.overOdds : row.underOdds;
         return { ...row, projAvg: roll.avg, sampleGames: roll.games, lean, edge, leanOdds };
       })
-      .filter(Boolean)
-      .sort((a, b) => Math.abs(b.edge) - Math.abs(a.edge));
+      .filter(Boolean);
+
+    results.innerHTML = "";
 
     if (withProjection.length === 0) {
-      body.innerHTML = `<tr><td colspan="7" style="color:var(--muted)">Found prop lines, but couldn't match any named players to a roster + game log.</td></tr>`;
+      results.innerHTML = `<div class="panel" style="color:var(--muted)">Found prop lines, but couldn't match any named players to a roster + game log.</div>`;
+      statusEl.textContent = "Done.";
+      return;
     }
 
+    // Group by market, rank each by confidence (|edge|), take top 7
+    const TOP_N = 7;
+    const byMarket = {};
     for (const r of withProjection) {
-      const tr = document.createElement("tr");
-      const leanCls = r.lean === "Over" ? "lean-over" : "lean-under";
-      const oddsStr = r.leanOdds > 0 ? `+${Math.round(r.leanOdds)}` : `${Math.round(r.leanOdds)}`;
-      tr.innerHTML = `
-        <td>${r.player}</td>
-        <td>${TEAM_ABBR[r.teamFull] ?? r.teamFull}</td>
-        <td>${MARKET_LABELS[r.market]}</td>
-        <td>${r.point}</td>
-        <td>${r.projAvg.toFixed(2)} <span style="color:var(--muted);font-size:0.8em;">(${r.sampleGames}g)</span></td>
-        <td class="${leanCls}">${r.lean} ${r.edge >= 0 ? "+" : ""}${r.edge.toFixed(2)}</td>
-        <td>${oddsStr}</td>`;
-      body.appendChild(tr);
+      (byMarket[r.market] ??= []).push(r);
+    }
+    const marketOrder = Object.keys(MARKET_LABELS).filter(m => byMarket[m]);
+
+    for (const marketKey of marketOrder) {
+      const top = byMarket[marketKey]
+        .sort((a, b) => Math.abs(b.edge) - Math.abs(a.edge))
+        .slice(0, TOP_N);
+
+      const panel = document.createElement("div");
+      panel.className = "panel";
+      panel.innerHTML = `
+        <h2 style="font-size:1.05rem;margin:0 0 10px;">${MARKET_LABELS[marketKey]} — Top ${top.length}</h2>
+        <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Player</th><th>Team</th><th>Line</th><th>Model Avg (L15)</th><th>Lean</th><th>Best Odds</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        </div>`;
+      const tbody = panel.querySelector("tbody");
+      for (const r of top) {
+        const tr = document.createElement("tr");
+        const leanCls = r.lean === "Over" ? "lean-over" : "lean-under";
+        const oddsStr = r.leanOdds > 0 ? `+${Math.round(r.leanOdds)}` : `${Math.round(r.leanOdds)}`;
+        tr.innerHTML = `
+          <td>${r.player}</td>
+          <td>${TEAM_ABBR[r.teamFull] ?? r.teamFull}</td>
+          <td>${r.point}</td>
+          <td>${r.projAvg.toFixed(2)} <span style="color:var(--muted);font-size:0.8em;">(${r.sampleGames}g)</span></td>
+          <td class="${leanCls}">${r.lean} ${r.edge >= 0 ? "+" : ""}${r.edge.toFixed(2)}</td>
+          <td>${oddsStr}</td>`;
+        tbody.appendChild(tr);
+      }
+      results.appendChild(panel);
     }
 
-    statusEl.textContent = `Updated ${new Date().toLocaleTimeString()} — ${withProjection.length} projections from ${uniquePlayerIds.length} players.`;
+    statusEl.textContent = `Updated ${new Date().toLocaleTimeString()} — top picks from ${withProjection.length} total projections across ${uniquePlayerIds.length} players.`;
   } catch (e) {
     errEl.textContent = "Failed to load props: " + e.message;
   } finally {
