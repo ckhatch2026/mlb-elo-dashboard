@@ -458,7 +458,8 @@ async function onRefresh() {
         if (line.awayOdds != null) {
           const awayMarketP = americanOddsToProb(line.awayOdds);
           const vig = (marketP + awayMarketP - 1) * 100;
-          marketEdgeCell = `<td>${vig.toFixed(1)}%</td>`;
+          const vigCls = vig >= 0 ? "edge-pos" : "edge-neg";
+          marketEdgeCell = `<td class="${vigCls}">${vig >= 0 ? "+" : ""}${vig.toFixed(1)} pts</td>`;
         }
       } else if (decided) {
         edgeCell = `<td style="color:var(--muted)">n/a${resultMark}</td>`;
