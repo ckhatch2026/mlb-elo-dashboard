@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MLB Player Props</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #2a2e38;
+    --text: #e8e9ec;
+    --muted: #9aa0ab;
+    --accent: #4f8cff;
+    --pos: #35c470;
+    --neg: #ff5d6c;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --border: #dfe2e8;
+      --text: #1a1d23;
+      --muted: #5b6270;
+      --accent: #2e6ee0;
+      --pos: #1a9e56;
+      --neg: #d6394a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    padding-top: max(24px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  @media (max-width: 480px) {
+    body { padding: 14px; }
+    input[type=date] { width: 100%; }
+    .row > div { width: 100%; }
+    table { font-size: 0.82rem; }
+    th, td { padding: 7px 6px; }
+  }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+  .back-link { color: var(--accent); font-size: 0.85rem; text-decoration: none; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  label { font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 4px; }
+  input[type=date] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 0.9rem;
+  }
+  select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 0.9rem;
+  }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; }
+  .lean-over { color: var(--pos); font-weight: 600; }
+  .lean-under { color: var(--neg); font-weight: 600; }
+  .status { font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
+  .error { color: var(--neg); font-size: 0.85rem; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<a class="back-link" href="index.html">&larr; Back to game predictions</a>
+<h1>MLB Player Props</h1>
+<div class="sub">Hitter prop projections vs. sportsbook lines. Runs entirely in your browser.</div>
+
+<div class="panel">
+  <div class="row">
+    <div>
+      <label for="propDate">Game date</label>
+      <input type="date" id="propDate">
+    </div>
+    <div>
+      <label for="propType">Prop type</label>
+      <select id="propType">
+        <option value="batter_hits">Hits</option>
+        <option value="batter_total_bases">Total Bases</option>
+        <option value="batter_home_runs">Home Runs</option>
+        <option value="batter_rbis">RBIs</option>
+        <option value="all" selected>All props</option>
+      </select>
+    </div>
+    <div style="align-self:flex-end;">
+      <button id="loadBtn">Load player props</button>
+    </div>
+  </div>
+  <div class="status" id="propStatus">No data loaded yet. This can take 20-40 seconds — it looks up each named player's team roster and recent game log.</div>
+  <div class="error" id="propError"></div>
+</div>
+
+<div class="panel">
+  <div class="table-scroll">
+  <table id="propTable">
+    <thead>
+      <tr><th>Player</th><th>Team</th><th>Prop</th><th>Line</th><th>Model Avg (L15)</th><th>Lean</th><th>Odds</th></tr>
+    </thead>
+    <tbody id="propBody">
+      <tr><td colspan="7" style="color:var(--muted)">Click "Load player props" to begin.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<script>
+const TEAM_ABBR = {
+  "Arizona Diamondbacks": "AZ", "Atlanta Braves": "ATL", "Baltimore Orioles": "BAL",
+  "Boston Red Sox": "BOS", "Chicago Cubs": "CHC", "Chicago White Sox": "CWS",
+  "Cincinnati Reds": "CIN", "Cleveland Guardians": "CLE", "Colorado Rockies": "COL",
+  "Detroit Tigers": "DET", "Houston Astros": "HOU", "Kansas City Royals": "KC",
+  "Los Angeles Angels": "LAA", "Los Angeles Dodgers": "LAD", "Miami Marlins": "MIA",
+  "Milwaukee Brewers": "MIL", "Minnesota Twins": "MIN", "New York Mets": "NYM",
+  "New York Yankees": "NYY", "Athletics": "ATH", "Oakland Athletics": "ATH",
+  "Philadelphia Phillies": "PHI", "Pittsburgh Pirates": "PIT", "San Diego Padres": "SD",
+  "San Francisco Giants": "SF", "Seattle Mariners": "SEA", "St. Louis Cardinals": "STL",
+  "Tampa Bay Rays": "TB", "Texas Rangers": "TEX", "Toronto Blue Jays": "TOR",
+  "Washington Nationals": "WSH",
+};
+
+const TEAM_ID = {
+  "Arizona Diamondbacks": 109, "Atlanta Braves": 144, "Baltimore Orioles": 110,
+  "Boston Red Sox": 111, "Chicago Cubs": 112, "Chicago White Sox": 145,
+  "Cincinnati Reds": 113, "Cleveland Guardians": 114, "Colorado Rockies": 115,
+  "Detroit Tigers": 116, "Houston Astros": 117, "Kansas City Royals": 118,
+  "Los Angeles Angels": 108, "Los Angeles Dodgers": 119, "Miami Marlins": 146,
+  "Milwaukee Brewers": 158, "Minnesota Twins": 142, "New York Mets": 121,
+  "New York Yankees": 147, "Athletics": 133, "Philadelphia Phillies": 143,
+  "Pittsburgh Pirates": 134, "San Diego Padres": 135, "San Francisco Giants": 137,
+  "Seattle Mariners": 136, "St. Louis Cardinals": 138, "Tampa Bay Rays": 139,
+  "Texas Rangers": 140, "Toronto Blue Jays": 141, "Washington Nationals": 120,
+};
+
+const MARKET_LABELS = {
+  batter_hits: "Hits",
+  batter_total_bases: "Total Bases",
+  batter_home_runs: "Home Runs",
+  batter_rbis: "RBIs",
+};
+
+const MARKET_STAT_FIELD = {
+  batter_hits: "hits",
+  batter_total_bases: "totalBases",
+  batter_home_runs: "homeRuns",
+  batter_rbis: "rbi",
+};
+
+const ROLLING_WINDOW = 15;
+
+function normalizeName(name) {
+  return name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
+async function fetchEventsForDate(dateStr) {
+  const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=${dateStr}&endDate=${dateStr}&gameType=R`;
+  const resp = await fetch(url);
+  const data = await resp.json();
+  const games = [];
+  for (const day of data.dates ?? []) {
+    for (const g of day.games ?? []) {
+      const home = g.teams.home.team.name, away = g.teams.away.team.name;
+      if (!(home in TEAM_ABBR) || !(away in TEAM_ABBR)) continue;
+      games.push({ home, away });
+    }
+  }
+  return games;
+}
+
+async function fetchOddsEvents(apiKey) {
+  const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events?apiKey=${encodeURIComponent(apiKey)}`;
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.message || `Odds API error (${resp.status})`);
+  }
+  return resp.json();
+}
+
+async function fetchEventProps(apiKey, eventId, markets) {
+  const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${eventId}/odds?apiKey=${encodeURIComponent(apiKey)}&regions=us&markets=${markets}&oddsFormat=american`;
+  const resp = await fetch(url);
+  if (!resp.ok) return null;
+  return resp.json();
+}
+
+function extractPropLines(eventOdds) {
+  // Returns [{ player, market, point, overOdds, underOdds }]
+  const lines = [];
+  const seen = new Set();
+  for (const book of eventOdds.bookmakers ?? []) {
+    for (const market of book.markets ?? []) {
+      for (const outcome of market.outcomes ?? []) {
+        const player = outcome.description;
+        if (!player) continue;
+        const dedupeKey = `${market.key}|${player}`;
+        if (seen.has(dedupeKey)) continue;
+        // find matching over/under pair within this same market's outcomes
+        const partnerName = outcome.name === "Over" ? "Under" : "Over";
+        const partner = market.outcomes.find(o => o.description === player && o.name === partnerName && o.point === outcome.point);
+        if (!partner) continue;
+        seen.add(dedupeKey);
+        lines.push({
+          player,
+          market: market.key,
+          point: outcome.point,
+          overOdds: outcome.name === "Over" ? outcome.price : partner.price,
+          underOdds: outcome.name === "Under" ? outcome.price : partner.price,
+        });
+      }
+    }
+  }
+  return lines;
+}
+
+async function fetchRoster(teamId) {
+  const url = `https://statsapi.mlb.com/api/v1/teams/${teamId}/roster?rosterType=active`;
+  const resp = await fetch(url);
+  const data = await resp.json();
+  const hitters = {};
+  for (const p of data.roster ?? []) {
+    if (p.position?.abbreviation === "P") continue;
+    hitters[normalizeName(p.person.fullName)] = p.person.id;
+  }
+  return hitters;
+}
+
+async function fetchHittingGameLog(playerId, season) {
+  const url = `https://statsapi.mlb.com/api/v1/people/${playerId}/stats?stats=gameLog&group=hitting&season=${season}`;
+  const resp = await fetch(url);
+  if (!resp.ok) return [];
+  const data = await resp.json();
+  const games = [];
+  for (const block of data.stats ?? []) {
+    for (const split of block.splits ?? []) {
+      games.push({ date: split.date, stat: split.stat });
+    }
+  }
+  games.sort((a, b) => a.date.localeCompare(b.date));
+  return games;
+}
+
+function rollingAverage(gameLog, field, window) {
+  const recent = gameLog.slice(-window);
+  if (recent.length === 0) return null;
+  const sum = recent.reduce((acc, g) => acc + (g.stat[field] ?? 0), 0);
+  return { avg: sum / recent.length, games: recent.length };
+}
+
+function americanOddsToProb(odds) {
+  odds = parseFloat(odds);
+  return odds < 0 ? (-odds) / (-odds + 100) : 100 / (odds + 100);
+}
+
+async function loadProps() {
+  const errEl = document.getElementById("propError");
+  const statusEl = document.getElementById("propStatus");
+  const body = document.getElementById("propBody");
+  errEl.textContent = "";
+
+  const apiKey = localStorage.getItem("oddsApiKey");
+  if (!apiKey) {
+    errEl.textContent = "No API key found. Go back to the main dashboard and set your key first.";
+    return;
+  }
+  const dateStr = document.getElementById("propDate").value;
+  if (!dateStr) { errEl.textContent = "Pick a date first."; return; }
+  const propType = document.getElementById("propType").value;
+  const markets = propType === "all" ? Object.keys(MARKET_LABELS).join(",") : propType;
+  const season = dateStr.slice(0, 4);
+
+  const btn = document.getElementById("loadBtn");
+  btn.disabled = true;
+  btn.textContent = "Loading…";
+  body.innerHTML = "";
+
+  try {
+    statusEl.textContent = "Fetching today's games and matching them to sportsbook events…";
+    const [games, events] = await Promise.all([
+      fetchEventsForDate(dateStr),
+      fetchOddsEvents(apiKey),
+    ]);
+
+    const gameSet = new Set(games.map(g => `${g.home}|${g.away}`));
+    const matchedEvents = events.filter(ev => gameSet.has(`${ev.home_team}|${ev.away_team}`));
+
+    if (matchedEvents.length === 0) {
+      body.innerHTML = `<tr><td colspan="7" style="color:var(--muted)">No sportsbook events matched for ${dateStr}.</td></tr>`;
+      statusEl.textContent = "Done.";
+      return;
+    }
+
+    statusEl.textContent = `Fetching prop lines for ${matchedEvents.length} games…`;
+    const propResults = await Promise.all(matchedEvents.map(ev => fetchEventProps(apiKey, ev.id, markets)));
+
+    const rows = []; // { player, teamFull, market, point, overOdds, underOdds }
+    const teamsNeeded = new Set();
+    matchedEvents.forEach((ev, i) => {
+      const eventOdds = propResults[i];
+      if (!eventOdds) return;
+      const lines = extractPropLines(eventOdds);
+      for (const line of lines) {
+        rows.push({ ...line, homeTeam: ev.home_team, awayTeam: ev.away_team });
+      }
+      teamsNeeded.add(ev.home_team);
+      teamsNeeded.add(ev.away_team);
+    });
+
+    if (rows.length === 0) {
+      body.innerHTML = `<tr><td colspan="7" style="color:var(--muted)">No prop lines posted yet for ${dateStr}.</td></tr>`;
+      statusEl.textContent = "Done.";
+      return;
+    }
+
+    statusEl.textContent = `Building rosters for ${teamsNeeded.size} teams…`;
+    const rosterEntries = await Promise.all(
+      [...teamsNeeded].map(async (teamName) => [teamName, await fetchRoster(TEAM_ID[teamName])])
+    );
+    const rosterByTeam = Object.fromEntries(rosterEntries);
+
+    // Resolve each row's player to a team + MLB id (try home roster, then away)
+    for (const row of rows) {
+      const norm = normalizeName(row.player);
+      if (rosterByTeam[row.homeTeam]?.[norm] != null) {
+        row.teamFull = row.homeTeam;
+        row.playerId = rosterByTeam[row.homeTeam][norm];
+      } else if (rosterByTeam[row.awayTeam]?.[norm] != null) {
+        row.teamFull = row.awayTeam;
+        row.playerId = rosterByTeam[row.awayTeam][norm];
+      } else {
+        row.playerId = null;
+      }
+    }
+
+    const matchedRows = rows.filter(r => r.playerId != null);
+    const uniquePlayerIds = [...new Set(matchedRows.map(r => r.playerId))];
+
+    statusEl.textContent = `Pulling recent game logs for ${uniquePlayerIds.length} players…`;
+    const gameLogEntries = await Promise.all(
+      uniquePlayerIds.map(async (id) => [id, await fetchHittingGameLog(id, season)])
+    );
+    const gameLogById = Object.fromEntries(gameLogEntries);
+
+    // Render
+    body.innerHTML = "";
+    const withProjection = matchedRows
+      .map(row => {
+        const field = MARKET_STAT_FIELD[row.market];
+        const roll = rollingAverage(gameLogById[row.playerId] ?? [], field, ROLLING_WINDOW);
+        if (!roll) return null;
+        const lean = roll.avg > row.point ? "Over" : "Under";
+        const edge = roll.avg - row.point;
+        const leanOdds = lean === "Over" ? row.overOdds : row.underOdds;
+        return { ...row, projAvg: roll.avg, sampleGames: roll.games, lean, edge, leanOdds };
+      })
+      .filter(Boolean)
+      .sort((a, b) => Math.abs(b.edge) - Math.abs(a.edge));
+
+    if (withProjection.length === 0) {
+      body.innerHTML = `<tr><td colspan="7" style="color:var(--muted)">Found prop lines, but couldn't match any named players to a roster + game log.</td></tr>`;
+    }
+
+    for (const r of withProjection) {
+      const tr = document.createElement("tr");
+      const leanCls = r.lean === "Over" ? "lean-over" : "lean-under";
+      const oddsStr = r.leanOdds > 0 ? `+${Math.round(r.leanOdds)}` : `${Math.round(r.leanOdds)}`;
+      tr.innerHTML = `
+        <td>${r.player}</td>
+        <td>${TEAM_ABBR[r.teamFull] ?? r.teamFull}</td>
+        <td>${MARKET_LABELS[r.market]}</td>
+        <td>${r.point}</td>
+        <td>${r.projAvg.toFixed(2)} <span style="color:var(--muted);font-size:0.8em;">(${r.sampleGames}g)</span></td>
+        <td class="${leanCls}">${r.lean} ${r.edge >= 0 ? "+" : ""}${r.edge.toFixed(2)}</td>
+        <td>${oddsStr}</td>`;
+      body.appendChild(tr);
+    }
+
+    statusEl.textContent = `Updated ${new Date().toLocaleTimeString()} — ${withProjection.length} projections from ${uniquePlayerIds.length} players.`;
+  } catch (e) {
+    errEl.textContent = "Failed to load props: " + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Load player props";
+  }
+}
+
+document.getElementById("loadBtn").addEventListener("click", loadProps);
+
+(function init() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  document.getElementById("propDate").value = `${yyyy}-${mm}-${dd}`;
+})();
+</script>
+
+</body>
+</html>
