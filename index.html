@@ -96,6 +96,7 @@
   .row-incorrect { background: color-mix(in srgb, var(--neg) 16%, transparent); }
   .mark-correct { color: var(--pos); font-weight: 700; }
   .mark-incorrect { color: var(--neg); font-weight: 700; }
+  .stale-mark { font-size: 0.75em; opacity: 0.65; }
   #predTable th:nth-child(2), #predTable td:nth-child(2),
   #predTable th:nth-child(4), #predTable td:nth-child(4) {
     border-right: 1px solid var(--border);
@@ -354,6 +355,22 @@ function saveCachedRatings(ratings, gameCount) {
   localStorage.setItem("eloRatings", JSON.stringify({ ratings, gameCount, computedAt: new Date().toISOString() }));
 }
 
+function loadOddsCache() {
+  try { return JSON.parse(localStorage.getItem("oddsCache") || "{}"); } catch { return {}; }
+}
+
+function mergeOddsCache(dateStr, liveOdds) {
+  const cache = loadOddsCache();
+  const dayCache = { ...(cache[dateStr] || {}), ...liveOdds };
+  cache[dateStr] = dayCache;
+  const cutoff = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  for (const d of Object.keys(cache)) {
+    if (d < cutoff) delete cache[d];
+  }
+  localStorage.setItem("oddsCache", JSON.stringify(cache));
+  return dayCache;
+}
+
 function renderRatingsTable(ratings) {
   const body = document.getElementById("ratingsBody");
   body.innerHTML = "";
@@ -420,10 +437,11 @@ async function onRefresh() {
   btn.disabled = true;
   btn.textContent = "Refreshing…";
   try {
-    const [schedule, odds] = await Promise.all([
+    const [schedule, liveOdds] = await Promise.all([
       fetchScheduleForDate(dateStr),
       fetchOddsForDate(apiKey, dateStr),
     ]);
+    const odds = mergeOddsCache(dateStr, liveOdds);
 
     body.innerHTML = "";
     if (schedule.length === 0) {
@@ -433,6 +451,8 @@ async function onRefresh() {
       const modelP = winProbability(cached.ratings, m.home, m.away);
       const key = `${m.home}@${m.away}`;
       const line = odds[key];
+      const isStale = line && !(key in liveOdds);
+      const staleMark = isStale ? ` <span class="stale-mark" title="Last known line before this game went live/off the board">🕐</span>` : "";
       const tr = document.createElement("tr");
 
       const decided = m.isFinal && m.homeScore != null && m.awayScore != null && m.homeScore !== m.awayScore;
@@ -453,7 +473,7 @@ async function onRefresh() {
         const edge = (modelP - marketP) * 100;
         const cls = edge >= 0 ? "edge-pos" : "edge-neg";
         const bookOdds = Math.round(line.homeOdds);
-        marketCell = `<td>${bookOdds > 0 ? "+" : ""}${bookOdds}</td>`;
+        marketCell = `<td>${bookOdds > 0 ? "+" : ""}${bookOdds}${staleMark}</td>`;
         edgeCell = `<td class="${cls}">${edge >= 0 ? "+" : ""}${edge.toFixed(1)} pts${resultMark}</td>`;
         if (line.awayOdds != null) {
           const awayMarketP = americanOddsToProb(line.awayOdds);
