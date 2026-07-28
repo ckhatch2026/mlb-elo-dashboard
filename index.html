@@ -180,7 +180,7 @@
   <div class="table-scroll">
   <table id="predTable">
     <thead>
-      <tr><th>Home</th><th>Away</th><th>Model Odds</th><th>Market Odds</th><th>Edge</th><th>Market Edge</th></tr>
+      <tr><th>Winner</th><th>Loser</th><th>Model Odds</th><th>Market Odds</th><th>Edge</th><th>Market Edge</th></tr>
     </thead>
     <tbody id="predBody">
       <tr><td colspan="6" style="color:var(--muted)">Enter your API key and click Refresh.</td></tr>
@@ -455,12 +455,19 @@ async function onRefresh() {
       const staleMark = isStale ? ` <span class="stale-mark" title="Last known line before this game went live/off the board">🕐</span>` : "";
       const tr = document.createElement("tr");
 
+      const winnerIsHome = modelP >= 0.5;
+      const modelWinnerP = winnerIsHome ? modelP : (1 - modelP);
+      const winnerTeam = winnerIsHome ? m.home : m.away;
+      const loserTeam = winnerIsHome ? m.away : m.home;
+      const homeTag = ` <span style="color:var(--muted);font-size:0.75em;">(H)</span>`;
+      const winnerCell = `${winnerTeam}${winnerIsHome ? homeTag : ""}`;
+      const loserCell = `${loserTeam}${winnerIsHome ? "" : homeTag}`;
+
       const decided = m.isFinal && m.homeScore != null && m.awayScore != null && m.homeScore !== m.awayScore;
       let correct = null;
       if (decided) {
-        const modelPickedHome = modelP >= 0.5;
         const homeWon = m.homeScore > m.awayScore;
-        correct = modelPickedHome === homeWon;
+        correct = winnerIsHome === homeWon;
         tr.classList.add(correct ? "row-correct" : "row-incorrect");
       }
       const resultMark = decided ? ` <span class="${correct ? "mark-correct" : "mark-incorrect"}">${correct ? "✓" : "✗"}</span>` : "";
@@ -469,22 +476,24 @@ async function onRefresh() {
       let edgeCell = `<td style="color:var(--muted)">n/a</td>`;
       let marketEdgeCell = `<td style="color:var(--muted)">n/a</td>`;
       if (line) {
-        const marketP = americanOddsToProb(line.homeOdds);
-        const edge = (modelP - marketP) * 100;
+        const winnerOdds = winnerIsHome ? line.homeOdds : line.awayOdds;
+        const marketWinnerP = americanOddsToProb(winnerOdds);
+        const edge = (modelWinnerP - marketWinnerP) * 100;
         const cls = edge >= 0 ? "edge-pos" : "edge-neg";
-        const bookOdds = Math.round(line.homeOdds);
+        const bookOdds = Math.round(winnerOdds);
         marketCell = `<td>${bookOdds > 0 ? "+" : ""}${bookOdds}${staleMark}</td>`;
         edgeCell = `<td class="${cls}">${edge >= 0 ? "+" : ""}${edge.toFixed(1)} pts${resultMark}</td>`;
-        if (line.awayOdds != null) {
+        if (line.homeOdds != null && line.awayOdds != null) {
+          const homeMarketP = americanOddsToProb(line.homeOdds);
           const awayMarketP = americanOddsToProb(line.awayOdds);
-          const vig = (marketP + awayMarketP - 1) * 100;
+          const vig = (homeMarketP + awayMarketP - 1) * 100;
           const vigCls = vig >= 0 ? "edge-pos" : "edge-neg";
           marketEdgeCell = `<td class="${vigCls}">${vig >= 0 ? "+" : ""}${vig.toFixed(1)} pts</td>`;
         }
       } else if (decided) {
         edgeCell = `<td style="color:var(--muted)">n/a${resultMark}</td>`;
       }
-      tr.innerHTML = `<td>${m.home}</td><td>${m.away}</td><td>${probToAmericanOdds(modelP)}</td>${marketCell}${edgeCell}${marketEdgeCell}`;
+      tr.innerHTML = `<td>${winnerCell}</td><td>${loserCell}</td><td>${probToAmericanOdds(modelWinnerP)}</td>${marketCell}${edgeCell}${marketEdgeCell}`;
       body.appendChild(tr);
     }
     statusEl.textContent = `Updated ${new Date().toLocaleTimeString()} — ratings from ${cached.gameCount} games (as of ${new Date(cached.computedAt).toLocaleDateString()}), odds fetched live just now.`;
