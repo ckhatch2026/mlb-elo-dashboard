@@ -92,6 +92,8 @@
   th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; }
   .edge-pos { color: var(--pos); font-weight: 600; }
   .edge-neg { color: var(--neg); font-weight: 600; }
+  .row-correct { background: color-mix(in srgb, var(--pos) 16%, transparent); }
+  .row-incorrect { background: color-mix(in srgb, var(--neg) 16%, transparent); }
   .status { font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
   .badge {
     display: inline-block;
@@ -291,7 +293,13 @@ async function fetchScheduleForDate(dateStr) {
     for (const g of day.games ?? []) {
       const home = g.teams.home.team.name, away = g.teams.away.team.name;
       if (!(home in TEAM_ABBR) || !(away in TEAM_ABBR)) continue;
-      matchups.push({ home: TEAM_ABBR[home], away: TEAM_ABBR[away], homeFull: home, awayFull: away });
+      const isFinal = g.status?.codedGameState === "F";
+      const homeScore = g.teams.home.score;
+      const awayScore = g.teams.away.score;
+      matchups.push({
+        home: TEAM_ABBR[home], away: TEAM_ABBR[away], homeFull: home, awayFull: away,
+        isFinal, homeScore, awayScore,
+      });
     }
   }
   return matchups;
@@ -431,6 +439,11 @@ async function onRefresh() {
         edgeCell = `<td class="${cls}">${edge >= 0 ? "+" : ""}${edge.toFixed(1)} pts</td>`;
       }
       tr.innerHTML = `<td>${m.home}</td><td>${m.away}</td><td>${probToAmericanOdds(modelP)}</td>${marketCell}${edgeCell}`;
+      if (m.isFinal && m.homeScore != null && m.awayScore != null && m.homeScore !== m.awayScore) {
+        const modelPickedHome = modelP >= 0.5;
+        const homeWon = m.homeScore > m.awayScore;
+        tr.classList.add(modelPickedHome === homeWon ? "row-correct" : "row-incorrect");
+      }
       body.appendChild(tr);
     }
     statusEl.textContent = `Updated ${new Date().toLocaleTimeString()} — ratings from ${cached.gameCount} games (as of ${new Date(cached.computedAt).toLocaleDateString()}), odds fetched live just now.`;
