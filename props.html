@@ -95,6 +95,10 @@
   th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; }
   .lean-over { color: var(--pos); font-weight: 600; }
   .lean-under { color: var(--neg); font-weight: 600; }
+  .row-correct { background: color-mix(in srgb, var(--pos) 16%, transparent); }
+  .row-incorrect { background: color-mix(in srgb, var(--neg) 16%, transparent); }
+  .mark-correct { color: var(--pos); font-weight: 700; }
+  .mark-incorrect { color: var(--neg); font-weight: 700; }
   .status { font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
   .error { color: var(--neg); font-size: 0.85rem; margin-top: 8px; }
 </style>
@@ -272,11 +276,20 @@ async function fetchHittingGameLog(playerId, season) {
   return games;
 }
 
-function rollingAverage(gameLog, field, window) {
-  const recent = gameLog.slice(-window);
+function rollingAverage(gameLog, field, window, beforeDate) {
+  // Only use games strictly before the game being projected, so a completed
+  // game's own result can never leak into its own projection.
+  const priorGames = gameLog.filter(g => g.date < beforeDate);
+  const recent = priorGames.slice(-window);
   if (recent.length === 0) return null;
   const sum = recent.reduce((acc, g) => acc + (g.stat[field] ?? 0), 0);
   return { avg: sum / recent.length, games: recent.length };
+}
+
+function actualStatForDate(gameLog, field, date) {
+  const entry = gameLog.find(g => g.date === date);
+  if (!entry) return null; // not played yet, player didn't play, or game postponed
+  return entry.stat[field] ?? 0;
 }
 
 function americanOddsToProb(odds) {
@@ -377,12 +390,16 @@ async function loadProps() {
     const withProjection = matchedRows
       .map(row => {
         const field = MARKET_STAT_FIELD[row.market];
-        const roll = rollingAverage(gameLogById[row.playerId] ?? [], field, ROLLING_WINDOW);
+        const log = gameLogById[row.playerId] ?? [];
+        const roll = rollingAverage(log, field, ROLLING_WINDOW, dateStr);
         if (!roll) return null;
         const lean = roll.avg > row.point ? "Over" : "Under";
         const edge = roll.avg - row.point;
         const leanOdds = lean === "Over" ? row.overOdds : row.underOdds;
-        return { ...row, projAvg: roll.avg, sampleGames: roll.games, lean, edge, leanOdds };
+        const actual = actualStatForDate(log, field, dateStr);
+        const decided = actual != null;
+        const correct = decided ? (lean === "Over" ? actual > row.point : actual < row.point) : null;
+        return { ...row, projAvg: roll.avg, sampleGames: roll.games, lean, edge, leanOdds, actual, decided, correct };
       })
       .filter(Boolean);
 
@@ -422,14 +439,20 @@ async function loadProps() {
       const tbody = panel.querySelector("tbody");
       for (const r of top) {
         const tr = document.createElement("tr");
+        if (r.decided) {
+          tr.classList.add(r.correct ? "row-correct" : "row-incorrect");
+        }
         const leanCls = r.lean === "Over" ? "lean-over" : "lean-under";
         const oddsStr = r.leanOdds > 0 ? `+${Math.round(r.leanOdds)}` : `${Math.round(r.leanOdds)}`;
+        const resultMark = r.decided
+          ? ` <span class="${r.correct ? "mark-correct" : "mark-incorrect"}" title="Actual: ${r.actual}">${r.correct ? "✓" : "✗"}</span>`
+          : "";
         tr.innerHTML = `
           <td>${r.player}</td>
           <td>${TEAM_ABBR[r.teamFull] ?? r.teamFull}</td>
           <td>${r.point}</td>
           <td>${r.projAvg.toFixed(2)} <span style="color:var(--muted);font-size:0.8em;">(${r.sampleGames}g)</span></td>
-          <td class="${leanCls}">${r.lean} ${r.edge >= 0 ? "+" : ""}${r.edge.toFixed(2)}</td>
+          <td class="${leanCls}">${r.lean} ${r.edge >= 0 ? "+" : ""}${r.edge.toFixed(2)}${resultMark}</td>
           <td>${oddsStr}</td>`;
         tbody.appendChild(tr);
       }
